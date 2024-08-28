@@ -86,13 +86,13 @@
 <body>
     <div class="container">
         <h1>JKZ Token Staking</h1>
-        <button onclick="connectWallet()">Connect Wallet</button>
+        <button id="walletButton" onclick="toggleWalletConnection()">Connect Wallet</button>
         <p id="walletAddress">Wallet not connected</p>
 
         <div class="balance-info">
             <p>Your JKZ Balance: <span id="balance">0</span></p>
             <p>Your Staked Amount: <span id="stakedAmount">0</span></p>
-            <p>Your Rewards: <span id="rewards">0</span></p>
+            <p>Your Rewards: <span id="potentialRewards">0</span></p>
         </div>
 
         <h3>Stake Tokens</h3>
@@ -113,7 +113,8 @@
     
 
     <script>
-        const contractAddress = '0xe12b3b2CdC6cDE3A6dEC92a7233295FA0B8460C4';
+        //const contractAddress = '0xe12b3b2CdC6cDE3A6dEC92a7233295FA0B8460C4';
+        const contractAddress = '0x59C4372C7182b3F7b95cfA88778e06916e6fE3cF';
         const contractABI = [
     {
         "inputs": [
@@ -609,65 +610,150 @@
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "account",
+                "type": "address"
+            }
+        ],
+        "name": "viewPotentialRewards",
+        "outputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
     }
 ];
 
-        let web3;
-        let contract;
-        let account;
+let web3;
+let contract;
+let account;
+let isConnected = false; // Declare this globally
+let rewardsInterval;
 
-        async function connectWallet() {
-            if (window.ethereum) {
-                web3 = new Web3(window.ethereum);
-                try {
-                    await ethereum.request({ method: 'eth_requestAccounts' });
-                    account = (await web3.eth.getAccounts())[0];
-                    document.getElementById('walletAddress').innerText = `Connected: ${account}`;
-                    contract = new web3.eth.Contract(contractABI, contractAddress);
-                    updateBalances();
-                } catch (error) {
-                    console.error("User denied account access", error);
-                }
-            } else {
-                alert('MetaMask is not installed');
-            }
-        }
+async function toggleWalletConnection() {
+    if (isConnected) {
+        disconnectWallet();
+    } else {
+        await connectWallet();
+    }
+}
 
-        async function updateBalances() {
-            console.log('updateBalances function called.'); // This log should appear after the button click log
-            try {
-                const balance = await contract.methods.balanceOf(account).call();
-                const stakedAmount = await contract.methods.stakesOf(account).call();
-                const rewards = await contract.methods.rewardsOf(account).call();
-        
-                console.log('Fetched balances:', { balance, stakedAmount, rewards }); // Log fetched balances
-                document.getElementById('balance').innerText = web3.utils.fromWei(balance, 'ether');
-                document.getElementById('stakedAmount').innerText = web3.utils.fromWei(stakedAmount, 'ether');
-                document.getElementById('rewards').innerText = web3.utils.fromWei(rewards, 'ether');
-            } catch (error) {
-                console.error("Error updating balances:", error); // Log any errors
-            }
-        }
+async function connectWallet() {
+    if (window.ethereum) {
+        web3 = new Web3(window.ethereum);
+        try {
+            await ethereum.request({ method: 'eth_requestAccounts' });
+            account = (await web3.eth.getAccounts())[0];
+            const shortAccount = shortenAddress(account); // Shorten the address
+            document.getElementById('walletAddress').innerHTML = `Connected: ${shortAccount}`;
+            document.getElementById('walletButton').innerText = 'Disconnect Wallet'; // Update button text
+            contract = new web3.eth.Contract(contractABI, contractAddress);
 
-        async function stakeTokens() {
-            const amount = document.getElementById('stakeAmount').value;
-            const amountInWei = web3.utils.toWei(amount, 'ether');
-            await contract.methods.stake(amountInWei).send({ from: account });
+            isConnected = true;
+
             updateBalances();
-            //setInterval(updateBalances, 10000);
-        }
+            viewPotentialRewards();
+            rewardsInterval = setInterval(() => {
+                console.log('Calling viewPotentialRewards every 10 seconds');
+                viewPotentialRewards();
+            }, 30000); // 10000 ms = 10 seconds
 
-        async function unstakeTokens() {
-            const amount = document.getElementById('unstakeAmount').value;
-            const amountInWei = web3.utils.toWei(amount, 'ether');
-            await contract.methods.unstake(amountInWei).send({ from: account });
-            updateBalances();
+        } catch (error) {
+            console.error("User denied account access", error);
         }
+    } else {
+        alert('MetaMask is not installed');
+    }
+}
 
-        async function claimRewards() {
-            await contract.methods.claimRewards().send({ from: account });
-            updateBalances();
-        }
+function disconnectWallet() {
+    // Clear the account information
+    account = null;
+    isConnected = false;
+
+    // Clear the wallet address display and reset the button text
+    document.getElementById('walletAddress').innerText = 'Wallet not connected';
+    document.getElementById('walletButton').innerText = 'Connect Wallet';
+
+    // Safeguard to check if elements exist before setting their innerText
+    const balanceElement = document.getElementById('balance');
+    const stakedAmountElement = document.getElementById('stakedAmount');
+    const rewardsElement = document.getElementById('rewards');
+    const potentialRewardsElement = document.getElementById('potentialRewards');
+
+    if (balanceElement) balanceElement.innerText = '0';
+    if (stakedAmountElement) stakedAmountElement.innerText = '0';
+    if (rewardsElement) rewardsElement.innerText = '0';
+    if (potentialRewardsElement) potentialRewardsElement.innerText = '0'; // Ensure this is the correct ID
+
+    console.log("Potential rewards cleared"); // Debugging log
+
+    // Clear the interval for updating rewards
+    if (rewardsInterval) {
+        clearInterval(rewardsInterval);
+        rewardsInterval = null; // Reset the interval variable to prevent issues
+        console.log("Rewards interval cleared"); // Debugging log
+    }
+}
+
+function shortenAddress(address) {
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+async function updateBalances() {
+    console.log('updateBalances function called.'); // This log should appear after the button click log
+    try {
+        const balance = await contract.methods.balanceOf(account).call();
+        const stakedAmount = await contract.methods.stakesOf(account).call();
+        const rewards = await contract.methods.rewardsOf(account).call();
+
+        console.log('Fetched balances:', { balance, stakedAmount, rewards }); // Log fetched balances
+
+        // Safeguard to check if elements exist before setting their innerText
+        const balanceElement = document.getElementById('balance');
+        const stakedAmountElement = document.getElementById('stakedAmount');
+        const rewardsElement = document.getElementById('rewards');
+
+        if (balanceElement) balanceElement.innerText = web3.utils.fromWei(balance, 'ether');
+        if (stakedAmountElement) stakedAmountElement.innerText = web3.utils.fromWei(stakedAmount, 'ether');
+        if (rewardsElement) rewardsElement.innerText = web3.utils.fromWei(rewards, 'ether');
+    } catch (error) {
+        console.error("Error updating balances:", error); // Log any errors
+    }
+}
+
+async function stakeTokens() {
+    const amount = document.getElementById('stakeAmount').value;
+    const amountInWei = web3.utils.toWei(amount, 'ether');
+    await contract.methods.stake(amountInWei).send({ from: account });
+    updateBalances();
+}
+
+async function unstakeTokens() {
+    const amount = document.getElementById('unstakeAmount').value;
+    const amountInWei = web3.utils.toWei(amount, 'ether');
+    await contract.methods.unstake(amountInWei).send({ from: account });
+    updateBalances();
+}
+
+async function viewPotentialRewards() {
+    const rewards = await contract.methods.viewPotentialRewards(account).call();
+    console.log('Potential rewards:', rewards);
+    document.getElementById('potentialRewards').innerText = web3.utils.fromWei(rewards, 'ether');
+}
+
+async function claimRewards() {
+    await contract.methods.claimRewards().send({ from: account });
+    updateBalances();
+}
 
         
     </script>
